@@ -1,0 +1,18 @@
+import "./globals.css";
+import { Space_Grotesk, Space_Mono } from "next/font/google";
+
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-sans" });
+const spaceMono = Space_Mono({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-mono" });
+
+export const metadata = {
+  title: "Stellar Payment Dashboard",
+  description: "Accept Stellar payments with simple links and status tracking."
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body className={`${spaceGrotesk.variable} ${spaceMono.variable} min-h-screen font-sans`}>{children}</body>
+    </html>
+  );
+}
