@@ -8,6 +8,9 @@ import paymentsRouter from "./routes/payments.js";
 import merchantsRouter from "./routes/merchants.js";
 import { requireApiKeyAuth } from "./lib/auth.js";
 import { supabase } from "./lib/supabase.js";
+import { validateEnvironmentVariables } from "./lib/env-validation.js";
+
+validateEnvironmentVariables();
 
 const app = express();
 const port = process.env.PORT || 4000;

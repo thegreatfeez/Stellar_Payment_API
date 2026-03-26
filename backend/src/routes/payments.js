@@ -1,11 +1,20 @@
 import 'dotenv/config';
 import express from "express";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { findMatchingPayment } from "../lib/stellar.js";
 import { sendWebhook } from "../lib/webhooks.js";
+import rateLimit from "express-rate-limit";
 
 const router = express.Router();
+
+const verifyPaymentRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many verification requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const REQUIRED_FIELDS = ["amount", "asset", "recipient"];
 
@@ -125,6 +134,7 @@ router.post("/create-payment", async (req, res, next) => {
       webhook_url: req.body.webhook_url || null,
       status: "pending",
       tx_id: null,
+      metadata: req.body.metadata || null,
       created_at: now
     };
 
@@ -178,7 +188,7 @@ router.get("/payment-status/:id", async (req, res, next) => {
     const { data, error } = await supabase
       .from("payments")
       .select(
-        "id, amount, asset, asset_issuer, recipient, description, memo, memo_type, status, tx_id, created_at"
+        "id, amount, asset, asset_issuer, recipient, description, memo, memo_type, status, tx_id, metadata, created_at"
       )
       .eq("id", req.params.id)
       .maybeSingle();
@@ -229,7 +239,7 @@ router.get("/payment-status/:id", async (req, res, next) => {
  *       404:
  *         description: Payment not found
  */
-router.post("/verify-payment/:id", async (req, res, next) => {
+router.post("/verify-payment/:id", verifyPaymentRateLimit, async (req, res, next) => {
   try {
     const { data, error } = await supabase
       .from("payments")
@@ -249,7 +259,11 @@ router.post("/verify-payment/:id", async (req, res, next) => {
     }
 
     if (data.status === "confirmed") {
-      return res.json({ status: "confirmed", tx_id: data.tx_id });
+      return res.json({ 
+        status: "confirmed", 
+        tx_id: data.tx_id,
+        ledger_url: `https://stellar.expert/explorer/testnet/tx/${data.tx_id}`
+      });
     }
 
     const match = await findMatchingPayment({
@@ -294,6 +308,7 @@ router.post("/verify-payment/:id", async (req, res, next) => {
     res.json({
       status: "confirmed",
       tx_id: match.transaction_hash,
+      ledger_url: `https://stellar.expert/explorer/testnet/tx/${match.transaction_hash}`,
       webhook: webhookResult
     });
   } catch (err) {
