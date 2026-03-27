@@ -42,6 +42,7 @@ export function createApiKeyAuth({
   "id, email, business_name, notification_email, branding_config, merchant_settings, webhook_secret, webhook_secret_old, webhook_secret_expiry, webhook_version, payment_limits"
 )
         .eq("api_key", apiKey)
+        .is("deleted_at", null)
         .maybeSingle();
 
       if (error) {
@@ -74,4 +75,39 @@ export function createApiKeyAuth({
 
 export function requireApiKeyAuth(options) {
   return createApiKeyAuth(options);
+}
+
+export function requireSessionAuth() {
+  return async function (req, res, next) {
+    try {
+      const authHeader = req.get("Authorization");
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Missing or invalid Authorization header" });
+      }
+
+      const token = authHeader.split(" ")[1];
+      const { verifySessionToken } = await import("./sep10-auth.js");
+      const { valid, payload, error: verifyError } = verifySessionToken(token);
+
+      if (!valid) {
+        return res.status(401).json({ error: verifyError || "Invalid session token" });
+      }
+
+      const client = (await import("./supabase.js")).supabase;
+      const { data: merchant, error } = await client
+        .from("merchants")
+        .select("id, email, business_name, notification_email, api_key")
+        .eq("id", payload.merchant_id)
+        .maybeSingle();
+
+      if (error || !merchant) {
+        return res.status(401).json({ error: "Merchant not found" });
+      }
+
+      req.merchant = merchant;
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
 }
