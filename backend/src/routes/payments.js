@@ -74,6 +74,9 @@ function createPaymentsRouter({
    *                 enum: [text, id, hash, return]
    *               webhook_url:
    *                 type: string
+   *               client_id:
+   *                 type: string
+   *                 description: Merchant-defined client/store identifier for segmentation
    *               branding_overrides:
    *                 type: object
    *                 properties:
@@ -184,6 +187,7 @@ function createPaymentsRouter({
         memo: body.memo || null,
         memo_type: body.memo_type || null,
         webhook_url: body.webhook_url || null,
+        client_id: body.client_id || null,
         status: "pending",
         tx_id: null,
         metadata,
@@ -430,6 +434,11 @@ function createPaymentsRouter({
    *           type: integer
    *           default: 10
    *         description: Number of results per page (max 100)
+   *       - in: query
+   *         name: client_id
+   *         schema:
+   *           type: string
+   *         description: Filter payments by merchant-defined client identifier
    *     responses:
    *       200:
    *         description: Paginated payments
@@ -457,6 +466,10 @@ function createPaymentsRouter({
     try {
       let page = parseInt(req.query.page, 10) || 1;
       let limit = parseInt(req.query.limit, 10) || 10;
+      const clientId =
+        typeof req.query.client_id === "string" && req.query.client_id.trim()
+          ? req.query.client_id.trim()
+          : null;
 
       if (page < 1) page = 1;
       if (limit < 1) limit = 1;
@@ -464,24 +477,34 @@ function createPaymentsRouter({
 
       const offset = (page - 1) * limit;
 
-      const { count: totalCount, error: countError } = await supabase
+      let countQuery = supabase
         .from("payments")
         .select("*", { count: "exact", head: true })
         .eq("merchant_id", req.merchant.id);
+      if (clientId) {
+        countQuery = countQuery.eq("client_id", clientId);
+      }
+      const { count: totalCount, error: countError } = await countQuery;
 
       if (countError) {
         countError.status = 500;
         throw countError;
       }
 
-      const { data: payments, error: dataError } = await supabase
+      let dataQuery = supabase
         .from("payments")
         .select(
-          "id, amount, asset, asset_issuer, recipient, description, status, tx_id, created_at",
+          "id, amount, asset, asset_issuer, recipient, description, client_id, status, tx_id, created_at",
         )
         .eq("merchant_id", req.merchant.id)
-        .order("created_at", { ascending: false })
-        .range(offset, offset + limit - 1);
+        .order("created_at", { ascending: false });
+      if (clientId) {
+        dataQuery = dataQuery.eq("client_id", clientId);
+      }
+      const { data: payments, error: dataError } = await dataQuery.range(
+        offset,
+        offset + limit - 1,
+      );
 
       if (dataError) {
         dataError.status = 500;

@@ -61,6 +61,7 @@ const paymentBaseSchema = z.object({
 
       return z.string().url().safeParse(value).success;
     }, "webhook_url must be a valid URL"),
+    client_id: optionalTrimmedString(),
     metadata: z.unknown().optional(),
   });
 
@@ -269,6 +270,7 @@ const paymentBaseV2 = z.object({
     if (!value) return true;
     return z.string().url().safeParse(value).success;
   }, "callback_url must be a valid URL"),
+  client_id: paymentBaseSchema.shape.client_id,
   metadata: z.unknown().optional(),
 });
 

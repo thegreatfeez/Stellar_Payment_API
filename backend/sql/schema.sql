@@ -14,6 +14,7 @@ create table if not exists merchants (
 create table if not exists payments (
   id uuid primary key,
   merchant_id uuid references merchants(id) on delete set null,
+  client_id text,
   amount numeric(18, 7) not null,
   asset text not null,
   asset_issuer text,
@@ -30,6 +31,7 @@ create table if not exists payments (
 
 create index if not exists payments_status_idx on payments(status);
 create index if not exists payments_merchant_idx on payments(merchant_id);
+create index if not exists payments_client_idx on payments(client_id);
 
 create table if not exists webhook_delivery_logs (
   id uuid primary key default gen_random_uuid(),
