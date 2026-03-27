@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import Skeleton, { SkeletonTheme } from "react-loading-skeleton";
+import "react-loading-skeleton/dist/skeleton.css";
 import PaymentDetailModal from "@/components/PaymentDetailModal";
+import ExportCsvButton from "@/components/ExportCsvButton";
+import { localeToLanguageTag } from "@/i18n/config";
 import {
   useHydrateMerchantStore,
   useMerchantApiKey,
-  useMerchantHydrated,
   useMerchantId,
 } from "@/lib/merchant-store";
 import { usePaymentSocket } from "@/lib/usePaymentSocket";
@@ -13,7 +18,7 @@ import { convertToCSV, downloadCSV } from "@/utils/csv";
 
 interface Payment {
   id: string;
-  amount: number;
+  amount: string;
   asset: string;
   status: string;
   description: string | null;
@@ -23,9 +28,6 @@ interface Payment {
 interface PaginatedResponse {
   payments: Payment[];
   total_count: number;
-  total_pages: number;
-  page: number;
-  limit: number;
 }
 
 interface FilterState {
@@ -36,11 +38,72 @@ interface FilterState {
   dateTo: string;
 }
 
-const LIMIT = 10;
-const STATUS_OPTIONS = ["all", "pending", "confirmed", "failed", "refunded"];
-const ASSET_OPTIONS = ["all", "XLM", "USDC"];
+const LIMIT = 100;
+const STATUS_OPTIONS = ["all", "pending", "confirmed", "failed", "refunded"] as const;
+const ASSET_OPTIONS = ["all", "XLM", "USDC"] as const;
+const DEFAULT_FILTERS: FilterState = {
+  search: "",
+  status: "all",
+  asset: "all",
+  dateFrom: "",
+  dateTo: "",
+};
 
-export default function RecentPayments() {
+function toStatusLabel(
+  t: ReturnType<typeof useTranslations>,
+  status: string,
+) {
+  return t.has(`statuses.${status}`) ? t(`statuses.${status}`) : status;
+}
+
+function filtersFromSearchParams(searchParams: URLSearchParams): FilterState {
+  return {
+    search: searchParams.get("search") ?? "",
+    status: searchParams.get("status") ?? "all",
+    asset: searchParams.get("asset") ?? "all",
+    dateFrom: searchParams.get("date_from") ?? "",
+    dateTo: searchParams.get("date_to") ?? "",
+  };
+}
+
+function buildSearchParams(filters: FilterState): URLSearchParams {
+  const params = new URLSearchParams();
+
+  if (filters.search) params.set("search", filters.search);
+  if (filters.status !== "all") params.set("status", filters.status);
+  if (filters.asset !== "all") params.set("asset", filters.asset);
+  if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+  if (filters.dateTo) params.set("date_to", filters.dateTo);
+
+  return params;
+}
+
+export default function RecentPayments({
+  showSkeleton = false,
+}: {
+  showSkeleton?: boolean;
+}) {
+  const t = useTranslations("recentPayments");
+  const locale = localeToLanguageTag(useLocale());
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const apiKey = useMerchantApiKey();
+  const merchantId = useMerchantId();
+
+  useHydrateMerchantStore();
+
+  const filters = useMemo(
+    () => filtersFromSearchParams(searchParams),
+    [searchParams],
+  );
+  const hasActiveFilters =
+    filters.search ||
+    filters.status !== "all" ||
+    filters.asset !== "all" ||
+    filters.dateFrom ||
+    filters.dateTo;
+
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,22 +113,38 @@ export default function RecentPayments() {
   const [totalCount, setTotalCount] = useState(0);
   const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // Track IDs of rows that should display the confirmed flash animation
   const [flashedIds, setFlashedIds] = useState<Set<string>>(new Set());
-  const [filters, setFilters] = useState<FilterState>({
-    search: "",
-    status: "all",
-    asset: "all",
-    dateFrom: "",
-    dateTo: "",
-  });
-  const apiKey = useMerchantApiKey();
-  const hydrated = useMerchantHydrated();
-  const merchantId = useMerchantId();
 
-  useHydrateMerchantStore();
+  const updateFilters = useCallback(
+    (nextFilters: FilterState) => {
+      const params = buildSearchParams(nextFilters);
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router],
+  );
 
-  // Real-time payment confirmation via WebSocket (issue #229)
+  const handleFilterChange = useCallback(
+    (key: keyof FilterState, value: string) => {
+      updateFilters({ ...filters, [key]: value });
+    },
+    [filters, updateFilters],
+  );
+
+  const clearFilter = useCallback(
+    (key: keyof FilterState) => {
+      updateFilters({
+        ...filters,
+        [key]: key === "status" || key === "asset" ? "all" : "",
+      });
+    },
+    [filters, updateFilters],
+  );
+
+  const clearAllFilters = useCallback(() => {
+    updateFilters(DEFAULT_FILTERS);
+  }, [updateFilters]);
+
   const handleConfirmed = useCallback(
     (event: {
       id: string;
@@ -78,13 +157,11 @@ export default function RecentPayments() {
     }) => {
       // Update the row status in-place without a full refetch
       setPayments((prev) =>
-        prev.map((p) =>
-          p.id === event.id ? { ...p, status: "confirmed" } : p,
+        prev.map((payment) =>
+          payment.id === event.id ? { ...payment, status: "confirmed" } : payment,
         ),
       );
-      // Trigger flash animation on the confirmed row
       setFlashedIds((prev) => new Set([...prev, event.id]));
-      // Remove flash class after animation completes (600 ms)
       setTimeout(() => {
         setFlashedIds((prev) => {
           const next = new Set(prev);
@@ -99,14 +176,14 @@ export default function RecentPayments() {
   usePaymentSocket(merchantId, handleConfirmed);
 
   useEffect(() => {
-    if (!hydrated) return;
-
     const controller = new AbortController();
 
-    const fetchPayments = async () => {
+    async function fetchPayments() {
       try {
         if (!apiKey) {
-          setError("API key not found. Please register or log in.");
+          setError(t("missingApiKey"));
+          setPayments([]);
+          setTotalCount(0);
           setLoading(false);
           return;
         }
@@ -133,63 +210,42 @@ export default function RecentPayments() {
               "x-api-key": apiKey,
             },
             signal: controller.signal,
+        setLoading(true);
+        setError(null);
+
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+        const params = buildSearchParams(filters);
+        params.set("page", "1");
+        params.set("limit", LIMIT.toString());
+
+        const response = await fetch(`${apiUrl}/api/payments?${params.toString()}`, {
+          headers: {
+            "x-api-key": apiKey,
           },
-        );
+          signal: controller.signal,
+        });
 
         if (!response.ok) {
-          throw new Error("Failed to fetch payments");
+          throw new Error(t("fetchFailed"));
         }
 
         const data: PaginatedResponse = await response.json();
         setPayments(data.payments ?? []);
-        setTotalPages(data.total_pages ?? 1);
         setTotalCount(data.total_count ?? 0);
       } catch (err: unknown) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        setError(
-          err instanceof Error ? err.message : "Failed to load payments",
-        );
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        setError(err instanceof Error ? err.message : t("loadFailed"));
       } finally {
         setLoading(false);
       }
-    };
+    }
 
     fetchPayments();
 
     return () => controller.abort();
-  }, [apiKey, page, hydrated, filters]);
-
-  const handleFilterChange = (key: keyof FilterState, value: string) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-    setPage(1); // Reset to first page when filters change
-  };
-
-  const clearFilter = (key: keyof FilterState) => {
-    if (key === "status" || key === "asset") {
-      setFilters((prev) => ({ ...prev, [key]: "all" }));
-    } else {
-      setFilters((prev) => ({ ...prev, [key]: "" }));
-    }
-    setPage(1);
-  };
-
-  const clearAllFilters = () => {
-    setFilters({
-      search: "",
-      status: "all",
-      asset: "all",
-      dateFrom: "",
-      dateTo: "",
-    });
-    setPage(1);
-  };
-
-  const hasActiveFilters =
-    filters.search ||
-    filters.status !== "all" ||
-    filters.asset !== "all" ||
-    filters.dateFrom ||
-    filters.dateTo;
+  }, [apiKey, filters, t]);
 
   const handlePaymentClick = (paymentId: string) => {
     setSelectedPayment(paymentId);
@@ -220,17 +276,7 @@ export default function RecentPayments() {
     setSelectedPayment(null);
   };
 
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-3">
-        {[...Array(3)].map((_, i) => (
-          <div key={i} className="h-12 w-full rounded-lg bg-white/5" />
-        ))}
-      </div>
-    );
-  }
-
-  if (error) {
+  if (showSkeleton || loading) {
     return (
       <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-8 text-center">
         {/* Error State Illustration */}
@@ -323,13 +369,26 @@ export default function RecentPayments() {
                 </p>
               </div>
             </div>
+            <div className="divide-y divide-white/5">
+              {[...Array(5)].map((_, index) => (
+                <div key={index} className="px-4 py-4">
+                  <div className="flex items-center justify-between">
+                    <Skeleton width={70} height={24} borderRadius={999} />
+                    <Skeleton width={100} height={20} borderRadius={4} />
+                    <Skeleton width={120} height={16} borderRadius={4} className="hidden sm:block" />
+                    <Skeleton width={80} height={16} borderRadius={4} className="hidden md:block" />
+                    <Skeleton width={60} height={16} borderRadius={4} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </SkeletonTheme>
     );
   }
 
-  if (payments.length === 0) {
+  if (error) {
     return (
       <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
         {/* Empty State Illustration */}
@@ -430,10 +489,8 @@ export default function RecentPayments() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Search and Filters */}
       <div className="rounded-xl border border-white/10 bg-white/5 p-4">
         <div className="flex flex-col gap-4">
-          {/* Search Bar */}
           <div className="flex flex-col gap-2">
             <label
               htmlFor="search"
@@ -446,8 +503,8 @@ export default function RecentPayments() {
                 id="search"
                 type="text"
                 value={filters.search}
-                onChange={(e) => handleFilterChange("search", e.target.value)}
-                placeholder="Search by payment ID or description..."
+                onChange={(event) => handleFilterChange("search", event.target.value)}
+                placeholder={t("searchPlaceholder")}
                 className="w-full rounded-xl border border-white/10 bg-black/40 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-slate-600 focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50"
               />
               <svg
@@ -466,9 +523,7 @@ export default function RecentPayments() {
             </div>
           </div>
 
-          {/* Filter Row */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Status Filter */}
             <div className="flex flex-col gap-2">
               <label
                 htmlFor="status"
@@ -479,8 +534,8 @@ export default function RecentPayments() {
               <select
                 id="status"
                 value={filters.status}
-                onChange={(e) => handleFilterChange("status", e.target.value)}
-                className="rounded-xl border border-white/10 bg-black/40 py-2.5 px-3 text-sm text-white focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50"
+                onChange={(event) => handleFilterChange("status", event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50"
               >
                 {STATUS_OPTIONS.map((status) => (
                   <option key={status} value={status}>
@@ -492,7 +547,6 @@ export default function RecentPayments() {
               </select>
             </div>
 
-            {/* Asset Filter */}
             <div className="flex flex-col gap-2">
               <label
                 htmlFor="asset"
@@ -503,18 +557,17 @@ export default function RecentPayments() {
               <select
                 id="asset"
                 value={filters.asset}
-                onChange={(e) => handleFilterChange("asset", e.target.value)}
-                className="rounded-xl border border-white/10 bg-black/40 py-2.5 px-3 text-sm text-white focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50"
+                onChange={(event) => handleFilterChange("asset", event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50"
               >
                 {ASSET_OPTIONS.map((asset) => (
                   <option key={asset} value={asset}>
-                    {asset === "all" ? "All Assets" : asset}
+                    {asset === "all" ? t("allAssets") : asset}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Date From */}
             <div className="flex flex-col gap-2">
               <label
                 htmlFor="dateFrom"
@@ -526,12 +579,11 @@ export default function RecentPayments() {
                 id="dateFrom"
                 type="date"
                 value={filters.dateFrom}
-                onChange={(e) => handleFilterChange("dateFrom", e.target.value)}
-                className="rounded-xl border border-white/10 bg-black/40 py-2.5 px-3 text-sm text-white focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50 [color-scheme:dark]"
+                onChange={(event) => handleFilterChange("dateFrom", event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50 [color-scheme:dark]"
               />
             </div>
 
-            {/* Date To */}
             <div className="flex flex-col gap-2">
               <label
                 htmlFor="dateTo"
@@ -543,13 +595,12 @@ export default function RecentPayments() {
                 id="dateTo"
                 type="date"
                 value={filters.dateTo}
-                onChange={(e) => handleFilterChange("dateTo", e.target.value)}
-                className="rounded-xl border border-white/10 bg-black/40 py-2.5 px-3 text-sm text-white focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50 [color-scheme:dark]"
+                onChange={(event) => handleFilterChange("dateTo", event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white focus:border-mint/50 focus:outline-none focus:ring-1 focus:ring-mint/50 [color-scheme:dark]"
               />
             </div>
           </div>
 
-          {/* Filter Chips and Clear All */}
           {hasActiveFilters && (
             <div className="flex flex-wrap items-center gap-2 pt-2">
               <span className="text-xs text-slate-400">Active filters:</span>
@@ -578,7 +629,6 @@ export default function RecentPayments() {
                   </button>
                 </span>
               )}
-
               {filters.status !== "all" && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-mint/30 bg-mint/10 px-3 py-1 text-xs text-mint">
                   Status: {filters.status}
@@ -603,7 +653,6 @@ export default function RecentPayments() {
                   </button>
                 </span>
               )}
-
               {filters.asset !== "all" && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-mint/30 bg-mint/10 px-3 py-1 text-xs text-mint">
                   Asset: {filters.asset}
@@ -628,7 +677,6 @@ export default function RecentPayments() {
                   </button>
                 </span>
               )}
-
               {filters.dateFrom && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-mint/30 bg-mint/10 px-3 py-1 text-xs text-mint">
                   From: {filters.dateFrom}
@@ -653,7 +701,6 @@ export default function RecentPayments() {
                   </button>
                 </span>
               )}
-
               {filters.dateTo && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-mint/30 bg-mint/10 px-3 py-1 text-xs text-mint">
                   To: {filters.dateTo}
@@ -683,19 +730,35 @@ export default function RecentPayments() {
                 onClick={clearAllFilters}
                 className="ml-auto text-xs font-medium text-slate-400 underline underline-offset-4 hover:text-white"
               >
-                Clear all
+                {t("clearAll")}
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Results count */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <p className="text-xs text-slate-400">
-          Showing {payments.length} of {totalCount} payments
-          {hasActiveFilters && ` (filtered from ${totalCount} total)`}
+          {t("showingResults", { shown: payments.length, total: totalCount })}
+          {hasActiveFilters ? ` ${t("filteredSuffix")}` : ""}
         </p>
+
+        <ExportCsvButton
+          transactions={payments.map((payment) => ({
+            id: payment.id,
+            createdAt: payment.created_at,
+            type: "payment",
+            status: payment.status,
+            amount: String(payment.amount),
+            asset: payment.asset,
+            sourceAccount: "",
+            destAccount: "",
+            hash: payment.id,
+            description: payment.description ?? "",
+          }))}
+          disabled={loading}
+          filename={`stellar_payments_${new Date().toISOString().slice(0, 10)}.csv`}
+        />
       </div>
 
       <div className="flex justify-between items-center">
@@ -774,16 +837,88 @@ export default function RecentPayments() {
                   </button>
                 </td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {payments.map((payment) => (
+                <tr
+                  key={payment.id}
+                  className={`cursor-pointer transition-colors hover:bg-white/5 ${
+                    flashedIds.has(payment.id)
+                      ? "animate-payment-confirmed bg-green-500/10"
+                      : ""
+                  }`}
+                  onClick={() => handlePaymentClick(payment.id)}
+                >
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        payment.status === "confirmed"
+                          ? "bg-green-500/20 text-green-400"
+                          : payment.status === "failed"
+                            ? "bg-red-500/20 text-red-400"
+                            : "bg-yellow-500/20 text-yellow-400"
+                      }`}
+                    >
+                      {toStatusLabel(t, payment.status)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 font-medium text-white">
+                    {payment.amount} {payment.asset}
+                  </td>
+                  <td className="hidden px-4 py-3 text-slate-400 sm:table-cell">
+                    {payment.description || t("emptyDescriptionValue")}
+                  </td>
+                  <td className="hidden px-4 py-3 text-slate-400 md:table-cell">
+                    {new Date(payment.created_at).toLocaleDateString(locale)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handlePaymentClick(payment.id);
+                      }}
+                      className="font-mono text-xs text-mint transition-colors hover:text-glow"
+                    >
+                      {t("view")} {"->"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <PaymentDetailModal
-        paymentId={selectedPayment || ""}
+        paymentId={selectedPayment}
         isOpen={isModalOpen}
         onClose={closeModal}
       />
     </div>
+  );
+}
+
+function FilterChip({
+  label,
+  onClear,
+  ariaLabel,
+}: {
+  label: string;
+  onClear: () => void;
+  ariaLabel: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-mint/30 bg-mint/10 px-3 py-1 text-xs text-mint">
+      {label}
+      <button
+        onClick={onClear}
+        className="ml-1 rounded-full p-0.5 hover:bg-mint/20"
+        aria-label={ariaLabel}
+      >
+        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </span>
   );
 }
