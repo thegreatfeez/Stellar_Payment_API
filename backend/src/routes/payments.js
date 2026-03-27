@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { findMatchingPayment } from "../lib/stellar.js";
 import { sendWebhook } from "../lib/webhooks.js";
+import { sanitizeMetadataMiddleware } from "../lib/sanitize-metadata.js";
 import rateLimit from "express-rate-limit";
 
 const router = express.Router();
@@ -106,7 +107,7 @@ function validateCreatePayment(body) {
  *       400:
  *         description: Validation error
  */
-router.post("/create-payment", async (req, res, next) => {
+router.post("/create-payment", sanitizeMetadataMiddleware, async (req, res, next) => {
   try {
     const error = validateCreatePayment(req.body || {});
     if (error) {
