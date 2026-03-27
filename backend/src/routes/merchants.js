@@ -1,15 +1,12 @@
 import express from "express";
 import { randomBytes } from "crypto";
-import { z } from "zod";
 import { supabase } from "../lib/supabase.js";
 import {
-  merchantProfileUpdateZodSchema,
   registerMerchantZodSchema,
   sessionBrandingSchema,
+  webhookSettingsSchema,
 } from "../lib/request-schemas.js";
 import { resolveBrandingConfig } from "../lib/branding.js";
-import { resolveMerchantSettings } from "../lib/merchant-settings.js";
-import { sendWebhook } from "../lib/webhooks.js";
 
 const router = express.Router();
 
@@ -81,7 +78,6 @@ router.post("/register-merchant", async (req, res, next) => {
       notification_email,
       api_key: apiKey,
       webhook_secret: webhookSecret,
-      merchant_settings: resolveMerchantSettings(body.merchant_settings),
       created_at: new Date().toISOString()
     };
 
@@ -103,7 +99,6 @@ router.post("/register-merchant", async (req, res, next) => {
         email: merchant.email,
         business_name: merchant.business_name,
         notification_email: merchant.notification_email,
-        merchant_settings: resolveMerchantSettings(merchant.merchant_settings),
         api_key: merchant.api_key,
         webhook_secret: merchant.webhook_secret,
         created_at: merchant.created_at
@@ -201,30 +196,43 @@ router.put("/merchant-branding", async (req, res, next) => {
   }
 });
 
-router.get("/merchant-profile", async (req, res, next) => {
+// ─── Webhook Settings ────────────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/webhook-settings:
+ *   get:
+ *     summary: Retrieve current webhook URL and masked webhook secret
+ *     tags: [Merchants]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Current webhook settings
+ */
+router.get("/webhook-settings", async (req, res, next) => {
   try {
     const { data, error } = await supabase
       .from("merchants")
-      .select(
-        "id, email, business_name, notification_email, merchant_settings, created_at",
-      )
+      .select("webhook_url, webhook_secret")
       .eq("id", req.merchant.id)
-      .maybeSingle();
+      .single();
 
     if (error) {
       error.status = 500;
       throw error;
     }
 
-    if (!data) {
-      return res.status(404).json({ error: "Merchant profile not found" });
-    }
+    // Mask the secret: show first 10 chars, hide the rest
+    const secret = data.webhook_secret || "";
+    const maskedSecret =
+      secret.length > 10
+        ? secret.slice(0, 10) + "•".repeat(secret.length - 10)
+        : "•".repeat(secret.length);
 
     res.json({
-      merchant: {
-        ...data,
-        merchant_settings: resolveMerchantSettings(data.merchant_settings),
-      },
+      webhook_url: data.webhook_url || "",
+      webhook_secret_masked: maskedSecret,
     });
   } catch (err) {
     next(err);
@@ -233,9 +241,9 @@ router.get("/merchant-profile", async (req, res, next) => {
 
 /**
  * @swagger
- * /api/test-webhook:
- *   post:
- *     summary: Send a test ping to a webhook URL
+ * /api/webhook-settings:
+ *   put:
+ *     summary: Update the merchant's webhook endpoint URL
  *     tags: [Merchants]
  *     security:
  *       - ApiKeyAuth: []
@@ -245,278 +253,25 @@ router.get("/merchant-profile", async (req, res, next) => {
  *         application/json:
  *           schema:
  *             type: object
- *             required: [webhook_url]
  *             properties:
  *               webhook_url:
  *                 type: string
  *                 format: uri
  *     responses:
  *       200:
- *         description: Ping result from the target server
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 ok:
- *                   type: boolean
- *                 status:
- *                   type: integer
- *                 body:
- *                   type: string
- *       400:
- *         description: Missing or invalid webhook_url
- */
-router.post("/test-webhook", async (req, res, next) => {
-  try {
-    const { webhook_url } = req.body || {};
-
-    if (!webhook_url) {
-      return res.status(400).json({ error: "webhook_url is required" });
-    }
-
-    const urlValidation = z.string().url().safeParse(webhook_url);
-    if (!urlValidation.success) {
-      return res.status(400).json({ error: "webhook_url must be a valid URL" });
-    }
-
-    const result = await sendWebhook(
-      webhook_url,
-      {
-        event: "ping",
-        merchant_id: req.merchant.id,
-        timestamp: new Date().toISOString(),
-      },
-      req.merchant.webhook_secret || null
-    );
-
-    res.json({
-      ok: result.ok,
-      status: result.status ?? null,
-      body: result.body ?? null,
-      signed: result.signed,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-const paymentLimitsSchema = z
-  .record(
-    z.string().min(1),
-    z.object({
-      min: z.number().positive().optional(),
-      max: z.number().positive().optional(),
-    })
-  )
-  .optional();
-
-/**
- * @swagger
- * /api/merchant-limits:
- *   get:
- *     summary: Get per-asset payment limits for the authenticated merchant
- *     tags: [Merchants]
- *     security:
- *       - ApiKeyAuth: []
- *     responses:
- *       200:
- *         description: Current payment limits config
- */
-router.get("/merchant-limits", async (req, res, next) => {
-  try {
-    const { data, error } = await supabase
-      .from("merchants")
-      .select("payment_limits")
-      .eq("id", req.merchant.id)
-      .maybeSingle();
-
-    if (error) {
-      error.status = 500;
-      throw error;
-    }
-
-    res.json({ payment_limits: data?.payment_limits ?? {} });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.put("/merchant-profile", async (req, res, next) => {
-  try {
-    const body = merchantProfileUpdateZodSchema.parse(req.body || {});
-    const updatePayload = {};
-
-    if (body.notification_email !== undefined) {
-      updatePayload.notification_email = body.notification_email;
-    }
-
-    if (body.merchant_settings !== undefined) {
-      updatePayload.merchant_settings = resolveMerchantSettings({
-        ...req.merchant.merchant_settings,
-        ...body.merchant_settings,
-      });
-    }
-
-    const { data, error } = await supabase
-      .from("merchants")
-      .update(updatePayload)
-      .eq("id", req.merchant.id)
-      .select(
-        "id, email, business_name, notification_email, merchant_settings, created_at",
-      )
-      .single();
-
-    if (error) {
-      error.status = 500;
-      throw error;
-    }
-
-    res.json({
-      merchant: {
-        ...data,
-        merchant_settings: resolveMerchantSettings(data.merchant_settings),
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * @swagger
- * /api/merchant-limits:
- *   put:
- *     summary: Set per-asset payment limits for the authenticated merchant
- *   tags: [Merchants]
- *     security:
- *       - ApiKeyAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             additionalProperties:
- *               type: object
- *               properties:
- *                 min:
- *                   type: number
- *                 max:
- *                   type: number
- *     responses:
- *       200:
- *         description: Updated payment limits
- */
-router.put("/merchant-limits", async (req, res, next) => {
-  try {
-    const limits = paymentLimitsSchema.parse(req.body || {});
-
-    const { data, error } = await supabase
-      .from("merchants")
-      .update({ payment_limits: limits ?? {} })
-      .eq("id", req.merchant.id)
-      .select("payment_limits")
-      .single();
-
-    if (error) {
-      error.status = 500;
-      throw error;
-    }
-
-    res.json({ payment_limits: data.payment_limits });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Stellar public keys start with 'G' and are 56 characters long.
-const stellarAddressSchema = z
-  .string()
-  .trim()
-  .refine(
-    (v) => v.startsWith("G") && v.length === 56,
-    "Each issuer must be a valid Stellar public key (starts with 'G', 56 characters)"
-  );
-
-const allowedIssuersSchema = z.array(stellarAddressSchema);
-
-/**
- * @swagger
- * /api/merchant-issuers:
- *   get:
- *     summary: Get the allowed issuers list for the authenticated merchant
- *     tags: [Merchants]
- *     security:
- *       - ApiKeyAuth: []
- *     responses:
- *       200:
- *         description: Current allowed issuers list (empty array means all issuers accepted)
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 allowed_issuers:
- *                   type: array
- *                   items:
- *                     type: string
- */
-router.get("/merchant-issuers", async (req, res, next) => {
-  try {
-    const { data, error } = await supabase
-      .from("merchants")
-      .select("allowed_issuers")
-      .eq("id", req.merchant.id)
-      .maybeSingle();
-
-    if (error) {
-      error.status = 500;
-      throw error;
-    }
-
-    res.json({ allowed_issuers: data?.allowed_issuers ?? [] });
-  } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * @swagger
- * /api/merchant-issuers:
- *   put:
- *     summary: Set the allowed issuers list for the authenticated merchant
- *     tags: [Merchants]
- *     security:
- *       - ApiKeyAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [allowed_issuers]
- *             properties:
- *               allowed_issuers:
- *                 type: array
- *                 items:
- *                   type: string
- *                 description: Array of trusted Stellar issuer public keys. Send an empty array to allow all issuers.
- *     responses:
- *       200:
- *         description: Updated allowed issuers list
+ *         description: Webhook URL updated
  *       400:
  *         description: Validation error
  */
-router.put("/merchant-issuers", async (req, res, next) => {
+router.put("/webhook-settings", async (req, res, next) => {
   try {
-    const body = z.object({ allowed_issuers: allowedIssuersSchema }).parse(req.body || {});
+    const body = webhookSettingsSchema.parse(req.body || {});
 
     const { data, error } = await supabase
       .from("merchants")
-      .update({ allowed_issuers: body.allowed_issuers })
+      .update({ webhook_url: body.webhook_url || null })
       .eq("id", req.merchant.id)
-      .select("allowed_issuers")
+      .select("webhook_url")
       .single();
 
     if (error) {
@@ -524,7 +279,41 @@ router.put("/merchant-issuers", async (req, res, next) => {
       throw error;
     }
 
-    res.json({ allowed_issuers: data.allowed_issuers });
+    res.json({ webhook_url: data.webhook_url || "" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/regenerate-webhook-secret:
+ *   post:
+ *     summary: Regenerate the merchant's webhook signing secret
+ *     tags: [Merchants]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: New webhook secret issued
+ *       401:
+ *         description: Missing or invalid x-api-key header
+ */
+router.post("/regenerate-webhook-secret", async (req, res, next) => {
+  try {
+    const newSecret = `whsec_${randomBytes(24).toString("hex")}`;
+
+    const { error } = await supabase
+      .from("merchants")
+      .update({ webhook_secret: newSecret })
+      .eq("id", req.merchant.id);
+
+    if (error) {
+      error.status = 500;
+      throw error;
+    }
+
+    res.json({ webhook_secret: newSecret });
   } catch (err) {
     next(err);
   }
