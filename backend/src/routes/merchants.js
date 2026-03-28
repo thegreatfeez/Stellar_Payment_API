@@ -44,7 +44,9 @@ function resolveWebhookSecretRotationGraceHours(requestValue) {
  * /api/register-merchant:
  *   post:
  *     summary: Register a new merchant
+ *     description: Create a new merchant account and receive API key and webhook secret credentials
  *     tags: [Merchants]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -56,18 +58,21 @@ function resolveWebhookSecretRotationGraceHours(requestValue) {
  *               email:
  *                 type: string
  *                 format: email
+ *                 description: Primary email for the merchant account
  *               business_name:
  *                 type: string
+ *                 description: Business name (defaults to email prefix if not provided)
  *               notification_email:
  *                 type: string
  *                 format: email
+ *                 description: Email for notifications (defaults to primary email)
  *               metadata:
  *                 type: object
  *                 additionalProperties: true
  *                 description: Optional free-form onboarding data (e.g. industry, country)
  *     responses:
  *       201:
- *         description: Merchant registered
+ *         description: Merchant registered successfully
  *         content:
  *           application/json:
  *             schema:
@@ -77,10 +82,27 @@ function resolveWebhookSecretRotationGraceHours(requestValue) {
  *                   type: string
  *                 merchant:
  *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       description: Unique merchant ID
+ *                     email:
+ *                       type: string
+ *                     business_name:
+ *                       type: string
+ *                     api_key:
+ *                       type: string
+ *                       description: API key for authenticating requests (keep secret)
+ *                     webhook_secret:
+ *                       type: string
+ *                       description: Secret for verifying webhook signatures (keep secret)
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
  *       400:
  *         description: Validation error
  *       409:
- *         description: Merchant already exists
+ *         description: Merchant with this email already exists
  */
 router.post("/register-merchant", async (req, res, next) => {
   try {

@@ -9,7 +9,10 @@ const router = express.Router();
  * /api/webhooks/logs:
  *   get:
  *     summary: Get webhook delivery logs for authenticated merchant
+ *     description: Retrieve paginated webhook delivery logs for the authenticated merchant account
  *     tags: [Webhooks]
+ *     security:
+ *       - ApiKeyAuth: []
  *     parameters:
  *       - in: query
  *         name: page
@@ -40,6 +43,31 @@ const router = express.Router();
  *               properties:
  *                 logs:
  *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       payment_id:
+ *                         type: string
+ *                       status_code:
+ *                         type: integer
+ *                       success:
+ *                         type: boolean
+ *                       response_body:
+ *                         type: string
+ *                       timestamp:
+ *                         type: string
+ *                         format: date-time
+ *                       payment:
+ *                         type: object
+ *                         properties:
+ *                           amount:
+ *                             type: number
+ *                           asset:
+ *                             type: string
+ *                           status:
+ *                             type: string
  *                 pagination:
  *                   type: object
  *                   properties:
@@ -51,6 +79,10 @@ const router = express.Router();
  *                       type: integer
  *                     totalPages:
  *                       type: integer
+ *       401:
+ *         description: Unauthorized - invalid or missing API key
+ *       500:
+ *         description: Server error
  */
 router.get("/webhooks/logs", async (req, res, next) => {
   try {

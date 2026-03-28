@@ -79,6 +79,42 @@ export async function createApp({ redisClient }) {
   app.locals.logger = logger;
 
   // Health check
+  /**
+   * @swagger
+   * /health:
+   *   get:
+   *     summary: Health check endpoint
+   *     description: Check the health status of the API and its dependencies (database, Stellar Horizon)
+   *     tags: [Health]
+   *     security: []
+   *     responses:
+   *       200:
+   *         description: API is healthy
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 ok:
+   *                   type: boolean
+   *                   description: Overall health status
+   *                 horizon_reachable:
+   *                   type: boolean
+   *                   description: Whether Stellar Horizon is reachable
+   *       503:
+   *         description: Service unavailable - database or Horizon is unreachable
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 ok:
+   *                   type: boolean
+   *                 error:
+   *                   type: string
+   *                 horizon_reachable:
+   *                   type: boolean
+   */
   app.get("/health", async (req, res) => {
     try {
       const [dbResult, horizonReachable] = await Promise.all([
