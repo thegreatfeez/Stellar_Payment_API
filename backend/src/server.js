@@ -17,15 +17,11 @@ const port = process.env.PORT || 4000;
 
 async function startServer() {
   let redisClient = null;
-  if (process.env.REDIS_URL) {
-    try {
-      redisClient = await connectRedisClient();
-      logger.info("redis connected");
-    } catch (err) {
-      logger.warn({ err }, "redis unavailable, continuing with in-memory fallbacks");
-    }
-  } else {
-    logger.warn("redis disabled (REDIS_URL not set), using in-memory fallbacks");
+  try {
+    redisClient = await connectRedisClient();
+    logger.info("redis connected");
+  } catch (err) {
+    logger.warn({ err }, "redis unavailable, continuing with in-memory fallbacks");
   }
 
   const { app, io } = await createApp({ redisClient });
