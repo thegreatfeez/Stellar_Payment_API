@@ -35,8 +35,15 @@ Agent → GET /api/demo/protected + X-Payment-Token: eyJ...
 
 ## Live Demo
 
-### Run the agent demo
+- **Frontend (Production)**: [https://stellar-payment-api.vercel.app](https://stellar-payment-api.vercel.app)
+- **Backend (Production)**: [https://pluto-api.up.railway.app/](https://pluto-api.up.railway.app/)
+  - Health check: [/health](https://pluto-api.up.railway.app/health)
+  - Documentation: [/api-docs](https://pluto-api.up.railway.app/api-docs)
+
+### Run the agent demo (targeting production)
+Edit `backend/scripts/demoAgent.js` to use the production URL, or export the environment variable:
 ```bash
+export PLUTO_API_URL=https://pluto-api.up.railway.app
 cd backend
 node scripts/demoAgent.js
 ```
@@ -44,7 +51,8 @@ node scripts/demoAgent.js
 Watch an AI agent go through the full payment loop — 402 → pay → verify → 200 — entirely automatically on Stellar testnet.
 
 ### Frontend demo
-Visit `http://localhost:3000/x402-demo` to see the agent payment flow visualized in real-time.
+Visit [https://stellar-payment-api.vercel.app/x402-demo](https://stellar-payment-api.vercel.app/x402-demo) to see the agent payment flow visualized in real-time.
+
 
 ---
 
