@@ -44,7 +44,7 @@ export default function DocsIndexPage() {
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-1">
           <h2 className="text-xl font-bold text-[#0A0A0A] tracking-tight">Integration Paths</h2>
-          <p className="text-sm font-medium text-[#6B6B6B]">Select the architecture that fits your project's needs.</p>
+          <p className="text-sm font-medium text-[#6B6B6B]">Select the architecture that fits your project&apos;s needs.</p>
         </div>
         
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
