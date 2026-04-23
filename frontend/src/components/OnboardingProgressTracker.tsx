@@ -193,29 +193,29 @@ export const OnboardingProgressTracker: React.FC<
 
       {/* Container */}
       <div
-        className={`rounded-lg border border-gray-200 bg-white p-6 shadow-sm ${
+        className={`rounded-[2rem] border border-pluto-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(240,246,251,0.92))] p-6 shadow-[0_20px_50px_rgba(13,27,46,0.08)] ${
           compact ? "p-4" : ""
         }`}
       >
         {/* Header */}
         <div className="mb-6">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-pluto-900">
               {t("onboarding.title") || "Onboarding Progress"}
             </h2>
-            <span className="text-sm font-medium text-gray-600">
+            <span className="text-sm font-medium text-pluto-700">
               {progressPercentage}%
             </span>
           </div>
-          <p className="mt-1 text-sm text-gray-600">
+          <p className="mt-1 text-sm text-[#6B6B6B]">
             {t("onboarding.subtitle") ||
               "Complete all required steps to finish setup"}
           </p>
 
           {/* Overall progress bar */}
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-200">
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-pluto-100">
             <motion.div
-              className="h-full bg-gradient-to-r from-blue-500 to-blue-600"
+              className="h-full bg-gradient-to-r from-pluto-500 via-pluto-600 to-pluto-700"
               variants={progressBarVariants}
               initial="hidden"
               animate="visible"
@@ -230,11 +230,11 @@ export const OnboardingProgressTracker: React.FC<
           </div>
 
           {/* Status text */}
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-2 text-xs text-[#6B6B6B]">
             {sortedSteps.filter((s) => s.completed).length} of{" "}
             {sortedSteps.length} steps completed
             {isOnboardingComplete && (
-              <span className="ml-2 inline-flex items-center gap-1 text-green-600 font-medium">
+              <span className="ml-2 inline-flex items-center gap-1 font-medium text-pluto-700">
                 <svg
                   className="h-3 w-3"
                   fill="currentColor"
@@ -266,17 +266,16 @@ export const OnboardingProgressTracker: React.FC<
           <AnimatePresence mode="popLayout">
             {sortedSteps.map((step, index) => {
               const isCurrentStep = currentStep === step.id;
-              const isPastStep = sortedSteps.findIndex((s) => s.id === currentStep) > index;
 
               return (
                 <motion.div
                   key={step.id}
                   role="listitem"
                   variants={stepVariants}
-                  className={`flex gap-4 ${
+                  className={`group relative rounded-3xl border border-transparent px-3 py-3 transition-colors duration-200 hover:border-pluto-100 hover:bg-white/90 ${
                     orientation === "horizontal"
-                      ? "flex-1 flex-col"
-                      : "flex-row"
+                      ? "flex flex-1 flex-col"
+                      : "flex flex-row gap-4"
                   }`}
                 >
                   {/* Step indicator */}
@@ -284,12 +283,12 @@ export const OnboardingProgressTracker: React.FC<
                     onClick={() => handleStepClick(step.id)}
                     className={`relative flex-shrink-0 ${
                       compact ? "h-8 w-8" : "h-10 w-10"
-                    } rounded-full border-2 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    } rounded-full border-2 font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-pluto-400 focus:ring-offset-2 ${
                       step.completed
-                        ? "border-green-500 bg-green-50"
+                        ? "border-pluto-500 bg-pluto-100 text-pluto-800 shadow-[0_10px_24px_rgba(74,111,165,0.14)]"
                         : isCurrentStep
-                          ? "border-blue-500 bg-blue-50"
-                          : "border-gray-300 bg-gray-50 hover:border-gray-400"
+                          ? "border-pluto-600 bg-pluto-50 text-pluto-700 shadow-[0_12px_28px_rgba(74,111,165,0.12)]"
+                          : "border-pluto-200 bg-white text-pluto-700 group-hover:border-pluto-400 group-hover:bg-pluto-50 group-hover:text-pluto-800 group-hover:shadow-[0_10px_24px_rgba(13,27,46,0.08)]"
                     }`}
                     aria-label={`Step ${showStepNumbers ? index + 1 : ""}: ${step.title}${
                       step.completed ? ". Completed" : ""
@@ -308,7 +307,7 @@ export const OnboardingProgressTracker: React.FC<
                           animate="visible"
                         >
                           <svg
-                            className="h-5 w-5 text-green-600"
+                            className="h-5 w-5 text-pluto-700"
                             fill="currentColor"
                             viewBox="0 0 20 20"
                             aria-hidden="true"
@@ -325,8 +324,8 @@ export const OnboardingProgressTracker: React.FC<
                           key="number"
                           className={`text-${compact ? "sm" : "base"} ${
                             isCurrentStep
-                              ? "text-blue-600"
-                              : "text-gray-600"
+                              ? "text-pluto-700"
+                              : "text-pluto-600"
                           }`}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
@@ -345,8 +344,8 @@ export const OnboardingProgressTracker: React.FC<
                     transition={{ delay: 0.1 }}
                   >
                     <h3
-                      className={`font-medium text-gray-900 ${
-                        step.completed ? "text-green-700 line-through" : ""
+                      className={`font-medium text-pluto-900 transition-colors duration-200 group-hover:text-pluto-800 ${
+                        step.completed ? "text-pluto-700 line-through" : ""
                       } ${compact ? "text-sm" : "text-base"}`}
                     >
                       {step.title}
@@ -360,7 +359,7 @@ export const OnboardingProgressTracker: React.FC<
                         </span>
                       )}
                     </h3>
-                    <p className={`text-gray-600 ${compact ? "text-xs" : "text-sm"}`}>
+                    <p className={`text-[#6B6B6B] transition-colors duration-200 group-hover:text-pluto-700 ${compact ? "text-xs" : "text-sm"}`}>
                       {step.description}
                     </p>
 
@@ -369,10 +368,10 @@ export const OnboardingProgressTracker: React.FC<
                       <motion.span
                         className={`inline-flex text-xs font-semibold rounded-full px-2 py-1 ${
                           step.completed
-                            ? "bg-green-100 text-green-800"
+                            ? "bg-pluto-100 text-pluto-800"
                             : isCurrentStep
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-gray-100 text-gray-800"
+                              ? "bg-pluto-200 text-pluto-800"
+                              : "bg-pluto-50 text-pluto-700 group-hover:bg-pluto-100"
                         }`}
                         initial={{ scale: 0.8, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
@@ -390,7 +389,7 @@ export const OnboardingProgressTracker: React.FC<
                   {/* Connector line (vertical orientation only) */}
                   {orientation === "vertical" &&
                     index < sortedSteps.length - 1 && (
-                      <div className="absolute left-5 top-10 h-3 w-0.5 bg-gray-200" />
+                      <div className="absolute left-8 top-[calc(100%_-_0.5rem)] h-3 w-0.5 bg-pluto-200" />
                     )}
                 </motion.div>
               );
@@ -402,7 +401,7 @@ export const OnboardingProgressTracker: React.FC<
         <AnimatePresence>
           {isOnboardingComplete && sortedSteps.length > 0 && (
             <motion.div
-              className="mt-6 rounded-lg bg-green-50 p-4 border border-green-200"
+              className="mt-6 rounded-2xl border border-pluto-200 bg-pluto-50 p-4"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
@@ -411,7 +410,7 @@ export const OnboardingProgressTracker: React.FC<
             >
               <div className="flex items-start gap-3">
                 <motion.svg
-                  className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5"
+                  className="mt-0.5 h-5 w-5 flex-shrink-0 text-pluto-600"
                   fill="currentColor"
                   viewBox="0 0 20 20"
                   animate={{ scale: [1, 1.2, 1] }}
@@ -424,10 +423,10 @@ export const OnboardingProgressTracker: React.FC<
                   />
                 </motion.svg>
                 <div>
-                  <h4 className="font-semibold text-green-900">
+                  <h4 className="font-semibold text-pluto-900">
                     {t("onboarding.successTitle") || "Onboarding Complete!"}
                   </h4>
-                  <p className="text-sm text-green-700 mt-1">
+                  <p className="mt-1 text-sm text-pluto-700">
                     {t("onboarding.successMessage") ||
                       "You have successfully completed all required onboarding steps."}
                   </p>
